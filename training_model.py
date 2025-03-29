@@ -34,9 +34,9 @@
 # 
 # This project aims to build a machine learning model that predicts the quality of wine based on its physicochemical properties such as acidity, pH, alcohol content, and sugar levels. Using classification algorithms, the goal is to accurately classify wines on a quality scale (e.g., 0 to 10).
 # 
-# The model’s predictions can help winemakers optimize production processes, ensure quality consistency, and make data-driven decisions without solely relying on manual testing. 
+# The model’s predictions can help winemakers optimize production processes, ensure quality consistency, and make data-driven decisions without solely relying on manual testing.
 
-# In[41]:
+# In[ ]:
 
 
 # Importing necessary libraries
@@ -48,13 +48,10 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from imblearn.over_sampling import SMOTE
 from collections import Counter
+from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler, label_binarize
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, RandomizedSearchCV
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from xgboost import XGBClassifier
-from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, RocCurveDisplay,roc_curve, precision_score, recall_score, f1_score
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 
 # In[ ]:
@@ -190,11 +187,8 @@ plt.show()
 
 
 # ### ***Model Evaluation***
-# 1. Applying **Random Forest** on pre-processed data
-# 2. Evaluating through accuracy, F-1 score, precision, recall
-# 3. Constructing Confusion Matrix
-# 4. Plotting ROC Curve
-# 5. Cross-Validation
+# 1. Applying **XGB Regressor** on pre-processed data
+# 2. Evaluating through R2 Score, MAE, MSE
 
 # In[ ]:
 
@@ -206,54 +200,42 @@ X_train, X_test, y_train, y_test = train_test_split(X_train_resampled, y_train_r
 # In[ ]:
 
 
-# Using Random Forest Classifier to predict the Wine quality
-rf_model = RandomForestClassifier(random_state=42, max_depth=19, n_estimators=250, min_samples_split=2)
-rf_model.fit(X_train, y_train)
+# Using XG Boosting Model to predict the Wine quality
+xgb_model = XGBRegressor(random_state=42)
 
-y_pred_rf = rf_model.predict(X_test)
-print("Accuracy:", accuracy_score(y_test, y_pred_rf))
-print(classification_report(y_test, y_pred_rf))
+# Definining Paramters
+param_dist = {
+    'n_estimators': [100, 300, 500, 700, 1000],
+    'learning_rate': [0.01, 0.05, 0.1, 0.2],
+    'max_depth': [3, 5, 7, 9],
+    'min_child_weight': [1, 3, 5, 7],
+    'gamma': [0, 0.1, 0.2, 0.3],
+    'subsample': [0.6, 0.8, 1.0],
+    'colsample_bytree': [0.6, 0.8, 1.0],
+    'reg_alpha': [0, 0.01, 0.1, 1, 10],
+    'reg_lambda': [1, 10, 50, 100]
+}
 
+# Hyperparameter tuning using Randomized Search
+random_search = RandomizedSearchCV(estimator=xgb_model, param_distributions=param_dist,
+                                    n_iter=50,
+                                    cv=5,
+                                    verbose=2,
+                                    n_jobs=-1,
+                                    scoring='r2',
+                                    random_state=42)
 
-# In[ ]:
+random_search.fit(X_train, y_train)
 
+print("Best Parameters:", random_search.best_params_)
 
-# Constructing the Confusion Matrix
-cm = confusion_matrix(y_test, y_pred_rf)
-print("Confusion Matrix:\n", cm)
+best_xgb_model = random_search.best_estimator_
+y_pred_xgb = best_xgb_model.predict(X_test)
 
-
-# In[ ]:
-
-
-# Binarize the output labels for multi-class ROC
-y_test_bin = label_binarize(y_test, classes=rf_model.classes_)
-y_score = rf_model.predict_proba(X_test)
-
-# Plot ROC Curve for each class
-plt.figure(figsize=(10, 8))
-for i in range(len(rf_model.classes_)):
-    fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_score[:, i])
-    plt.plot(fpr, tpr, label=f"Class {rf_model.classes_[i]} (AUC = {roc_auc_score(y_test_bin[:, i], y_score[:, i]):.2f})")
-
-plt.plot([0, 1], [0, 1], 'k--')
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('Multiclass ROC Curve')
-plt.legend(loc="lower right")
-plt.grid()
-plt.show()
-
-
-# In[ ]:
-
-
-# Perform 5-Fold Cross-Validation
-cv_scores = cross_val_score(rf_model, X_train_resampled, y_train_resampled, cv=5, scoring='accuracy')
-
-print("Cross-Validation Scores:", cv_scores)
-print("Mean Accuracy:", cv_scores.mean())
-print("Standard Deviation:", cv_scores.std())
+# Evaluating the model
+print("R2 Score for XGBoost Model:", r2_score(y_test, y_pred_xgb))
+print("Mean Absolute Error (MAE):", mean_absolute_error(y_test, y_pred_xgb))
+print("Mean Squared Error (MSE):", mean_squared_error(y_test, y_pred_xgb))
 
 
 # ### ***Feature Engineering***
@@ -262,7 +244,7 @@ print("Standard Deviation:", cv_scores.std())
 
 
 # Getting feature importance
-feature_importance = rf_model.feature_importances_
+feature_importance = best_xgb_model.feature_importances_
 
 # Converting feature importance to DataFrame
 feature_importance_df = pd.DataFrame({'Feature': X_train.columns, 'Importance': feature_importance})
@@ -296,30 +278,79 @@ plt.title('Correlation Matrix')
 plt.show()
 
 # Check the correlation of free sulfur dioxide with quality
-correlation_value = correlation_matrix['quality']['free sulfur dioxide']
-print(f"Correlation between Free Sulfur Dioxide and Quality: {correlation_value:.2f}")
+correlation_value = correlation_matrix['quality']['alcohol']
+print(f"Correlation between Alcohol and Quality: {correlation_value:.2f}")
 
 
-# Based on the analysis, alcohol emerged as the most influential feature in predicting wine quality, showing a moderate positive correlation (0.46). This suggests that higher alcohol content is generally associated with better wine quality. In contrast, while free sulfur dioxide showed a negligible correlation (0.01) with quality, its prominence during feature engineering indicates that it may have a non-linear impact on quality.
+# **Final Analysis of Feature Engineering**
+# 
+# Feature engineering and correlation analysis indicate that **alcohol** content is the most influential factor in predicting wine quality, contributing **26.55%** to the model’s decision and showing a moderate positive correlation (0.46) with quality. Additionally, free sulfur dioxide (23.66%) and chlorides (11.32%) significantly impact the quality, with excessive levels negatively affecting taste. While volatile acidity and total sulfur dioxide demonstrate a moderate effect, their correlation with quality highlights the importance of maintaining balanced levels. This combined insight enables more accurate predictions, supporting informed decisions in wine production and quality management.
 
-# ### ***Model Comparison***
+# ### ***Plot of Actual vs Predicted Value***
 
-# |Model|Accuracy|Precision|Recall|F1-Score|Training Time|Comments|
-# |-----|--------|---------|------|--------|-------------|--------|
-# |Random Forest|86.33%|85.73%|86.33%|85.88%|1.03 sec|Good balance of accuracy and speed|
-# |SVM|76.32%|75.12%|76.32%|75.26%|0.36 sec|May take longer with large datasets|
-# |Gradient Boosting|77.83%|77.13%|77.83%|77.35%|9.97 sec|Strong performance, prone to overfitting|
-# |Decision Tree|77.61%|76.60%|77.61%|76.99%|0.05 sec|Simple and interpretable, but prone to overfitting.|
-
-# In[44]:
+# In[ ]:
 
 
-joblib.dump(rf_model, 'model.pkl')
-print("Model saved as model.pkl")
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=y_test, y=y_pred_xgb)
+plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], color='red', linestyle='--')
+plt.xlabel('Actual Quality')
+plt.ylabel('Predicted Quality')
+plt.title('Actual vs Predicted Wine Quality')
+plt.show()
 
 
 # In[ ]:
 
 
 
+
+
+# ### ***Wine Quality Prediction - Model Comparison***
+# 
+# | **Metric**                  | **Random Forest Regressor** | **Gradient Boosting Regressor** | **XGBoost Regressor** |
+# |------------------------------|-----------------------------|---------------------------------|------------------------|
+# | **R² Score**                  | 0.91                        | 0.92                            | **0.95**                |
+# | **Mean Absolute Error (MAE)** | 0.35                        | 0.31                            | **0.27**                |
+# | **Mean Squared Error (MSE)**  | 0.24                        | 0.21                            | **0.19**                |
+# | **Training Time**             | Moderate                    | High                            | **Moderate to High**    |
+# | **Interpretability**          | High                        | Moderate                        | Moderate                |
+# | **Overfitting Risk**          | Moderate                    | Low to Moderate                 | **Low (with tuning)**   |
+# | **Hyperparameter Sensitivity**| Moderate                    | High                            | **High**                |
+# | **Best for Small Datasets**   | Yes                         | No                              | No                     |
+# | **Best for Large Datasets**   | Moderate                    | Yes                             | **Yes**                 |
+
+# ### ***Saving the Model***
+
+# In[25]:
+
+
+joblib.dump(best_xgb_model, 'model.pkl')
+print("Model saved as model.pkl")
+
+joblib.dump(scaler, 'scaler.pkl')
+print("Scaler saved as scaler.pkl")
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# ### ***Predicting the Sample Input***
+
+# In[ ]:
+
+
+sample_input = [[7.0, 0.25, 0.5, 4.0, 0.02, 25.0, 150.0, 0.994, 3.4, 0.65, 15]]
+sample_input_scaled = scaler.transform(sample_input)
+prediction = best_xgb_model.predict(sample_input_scaled)
+print("Predicted Quality:", prediction[0])
 

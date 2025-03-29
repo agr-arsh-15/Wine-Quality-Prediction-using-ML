@@ -1,54 +1,32 @@
-from flask import Flask, request, jsonify, render_template_string
-import joblib
+import streamlit as st
 import numpy as np
+import joblib
 
-app = Flask(__name__)
-
-# Load the trained model
+# Load the saved model and scaler
 model = joblib.load('model.pkl')
+scaler = joblib.load('scaler.pkl')
 
-# HTML template for displaying result
-html_template = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Prediction Result</title>
-</head>
-<body>
-    <h1>Wine Quality Prediction</h1>
-    <form action="/predict" method="post">
-        <label>Enter 11 Features (comma separated):</label>
-        <input type="text" name="features" required>
-        <button type="submit">Predict</button>
-    </form>
-    {% if prediction is not none %}
-    <h2>Prediction: {{ prediction }}</h2>
-    {% endif %}
-</body>
-</html>
-"""
+# Streamlit App Title
+st.title('Wine Quality Prediction App')
+st.write('Enter the wine characteristics to predict its quality.')
 
-@app.route('/', methods=['GET'])
-def home():
-    return render_template_string(html_template, prediction=None)
+# Input Fields for the Features
+features = []
+feature_names = ['Fixed Acidity', 'Volatile Acidity', 'Citric Acid', 'Residual Sugar', 'Chlorides',
+                 'Free Sulfur Dioxide', 'Total Sulfur Dioxide', 'Density', 'pH', 'Sulphates', 'Alcohol']
 
-@app.route('/predict', methods=['POST'])
-def predict():
+for name in feature_names:
+    value = st.number_input(f'{name}', min_value=0.0, step=0.1)
+    features.append(value)
+
+# Predict Button
+if st.button('Predict Quality'):
     try:
-        # Get input from form
-        features = request.form['features']
-        features_list = np.array([float(x) for x in features.split(',')]).reshape(1, -1)
-
-        # Validate input
-        if features_list.shape[1] != 11:
-            return "Error: Please enter exactly 11 features."
-
-        # Predict
-        prediction = model.predict(features_list)[0]
-        return render_template_string(html_template, prediction=prediction)
-
+        final_features = np.array(features).reshape(1, -1)
+        scaled_features = scaler.transform(final_features)
+        prediction = model.predict(scaled_features)
+        result = round(prediction[0], 2)
+        st.success(f'Predicted Wine Quality: {result}')
     except Exception as e:
-        return f"Error: {str(e)}"
+        st.error(f'Error: {e}')
 
-if __name__ == '__main__':
-    app.run(debug=True)
